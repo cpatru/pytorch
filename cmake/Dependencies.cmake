@@ -75,8 +75,8 @@ endif(MSVC)
 
 # ---[ Threads
 include(${CMAKE_CURRENT_LIST_DIR}/public/threads.cmake)
-if(TARGET Threads::Threads)
-  list(APPEND Caffe2_PUBLIC_DEPENDENCY_LIBS Threads::Threads)
+if(TARGET caffe2::Threads)
+  list(APPEND Caffe2_PUBLIC_DEPENDENCY_LIBS caffe2::Threads)
 else()
   message(FATAL_ERROR
       "Cannot find threading library. Caffe2 requires Threads to compile.")
@@ -1364,6 +1364,8 @@ if(USE_GLOO)
       set(ENV{GLOO_ROCM_ARCH} "${PYTORCH_ROCM_ARCH}")
     endif()
     if(NOT USE_SYSTEM_GLOO)
+      # gloo uses cuda_add_library
+      torch_update_find_cuda_flags()
       add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../third_party/gloo)
     else()
       add_library(gloo SHARED IMPORTED)
@@ -1410,6 +1412,8 @@ if(USE_DISTRIBUTED AND USE_TENSORPIPE)
     set(TP_BUILD_LIBUV ON CACHE BOOL "" FORCE)
     set(TP_STATIC_OR_SHARED STATIC CACHE STRING "" FORCE)
 
+    # Tensorpipe uses cuda_add_library
+    torch_update_find_cuda_flags()
     add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/tensorpipe)
 
     list(APPEND Caffe2_DEPENDENCY_LIBS tensorpipe)
@@ -1553,7 +1557,6 @@ function(add_onnx_tensorrt_subdir)
 endfunction()
 if(CAFFE2_CMAKE_BUILDING_WITH_MAIN_REPO)
   if(USE_TENSORRT)
-    set(CMAKE_CUDA_COMPILER ${CUDA_NVCC_EXECUTABLE})
     add_onnx_tensorrt_subdir()
     include_directories("${CMAKE_CURRENT_LIST_DIR}/../third_party/onnx-tensorrt")
     caffe2_interface_library(nvonnxparser_static onnx_trt_library)
@@ -1567,8 +1570,7 @@ set(USE_LAPACK 0)
 
 if(NOT INTERN_BUILD_MOBILE)
   set(TORCH_CUDA_ARCH_LIST $ENV{TORCH_CUDA_ARCH_LIST})
-  set(TORCH_NVCC_FLAGS $ENV{TORCH_NVCC_FLAGS})
-  separate_arguments(TORCH_NVCC_FLAGS)
+  string(APPEND CMAKE_CUDA_FLAGS " $ENV{TORCH_NVCC_FLAGS}")
   set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 
   # Top-level build config
@@ -1587,7 +1589,7 @@ if(NOT INTERN_BUILD_MOBILE)
   if(MSVC)
     # we want to respect the standard, and we are bored of those **** .
     add_definitions(-D_CRT_SECURE_NO_DEPRECATE=1)
-    list(APPEND CUDA_NVCC_FLAGS "-Xcompiler=/wd4819,/wd4503,/wd4190,/wd4244,/wd4251,/wd4275,/wd4522")
+    string(APPEND CMAKE_CUDA_FLAGS " -Xcompiler=/wd4819,/wd4503,/wd4190,/wd4244,/wd4251,/wd4275,/wd4522")
   endif()
 
   if(NOT MSVC)
@@ -1598,22 +1600,19 @@ if(NOT INTERN_BUILD_MOBILE)
     endif()
   endif()
 
-  list(APPEND CUDA_NVCC_FLAGS -Wno-deprecated-gpu-targets)
-  list(APPEND CUDA_NVCC_FLAGS --expt-extended-lambda)
+  string(APPEND CMAKE_CUDA_FLAGS " -Wno-deprecated-gpu-targets --expt-extended-lambda")
 
   if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_CXX_STANDARD 14)
   endif()
 
-  list(APPEND CUDA_NVCC_FLAGS ${TORCH_NVCC_FLAGS})
-  if(CMAKE_POSITION_INDEPENDENT_CODE AND NOT MSVC)
-    list(APPEND CUDA_NVCC_FLAGS "-Xcompiler" "-fPIC")
-  endif()
-
   if(CUDA_HAS_FP16 OR NOT ${CUDA_VERSION} LESS 7.5)
     message(STATUS "Found CUDA with FP16 support, compiling with torch.cuda.HalfTensor")
-    list(APPEND CUDA_NVCC_FLAGS "-DCUDA_HAS_FP16=1" "-D__CUDA_NO_HALF_OPERATORS__" "-D__CUDA_NO_HALF_CONVERSIONS__"
-      "-D__CUDA_NO_BFLOAT16_CONVERSIONS__" "-D__CUDA_NO_HALF2_OPERATORS__")
+    string(APPEND CMAKE_CUDA_FLAGS " -DCUDA_HAS_FP16=1"
+                                   " -D__CUDA_NO_HALF_OPERATORS__"
+                                   " -D__CUDA_NO_HALF_CONVERSIONS__"
+                                   " -D__CUDA_NO_HALF2_OPERATORS__"
+                                   " -D__CUDA_NO_BFLOAT16_CONVERSIONS__")
     add_compile_options(-DCUDA_HAS_FP16=1)
   else()
     message(STATUS "Could not find CUDA with FP16 support, compiling without torch.CudaHalfTensor")
